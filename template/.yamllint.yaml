@@ -1,0 +1,11 @@
+# YAML-Prüfung mit yamllint (Check `yaml` in `nix flake check`)
+extends: default
+
+rules:
+  line-length:
+    max: 160
+  # Dateien beginnen ohne "---"
+  document-start: disable
+  # `on:` in den Workflows ist ein Schlüssel, kein Wahrheitswert
+  truthy:
+    check-keys: false

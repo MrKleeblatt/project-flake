@@ -1,0 +1,17 @@
+name: Prüfen und bauen
+
+on:
+  workflow_dispatch:
+  # jeder Pull Request nach master, Voraussetzung für den Merge
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    # Label des Runners für dieses Repo
+    runs-on: beispiel
+    env:
+      NIX_CONFIG: experimental-features = nix-command flakes
+    steps:
+      - uses: actions/checkout@v4
+      - run: nix develop ./dev --command just ci

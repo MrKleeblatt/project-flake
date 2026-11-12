@@ -1,0 +1,20 @@
+name: Release
+
+# Ein Tag v… (geschützt) auf master: Tag prüfen, bauen, Release anlegen, `release` nachziehen
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: beispiel
+    env:
+      NIX_CONFIG: experimental-features = nix-command flakes
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # master und die älteren Tags, für die Prüfung und die Änderungsliste
+          fetch-depth: 0
+      - env:
+          RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: nix develop ./dev --command just release "$GITHUB_REF_NAME"

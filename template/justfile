@@ -1,0 +1,33 @@
+# die Werkzeuge kommen aus der Devshell in dev/flake.nix (`nix develop ./dev` oder direnv)
+
+# einzige Stelle der Versionsnummer, die Tags heißen v<version>
+version := `sed -n 's/^[[:space:]]*\.version = "\(.*\)",/\1/p' build.zig.zon`
+
+[private]
+default:
+    @just --list
+
+# Pull Requests (Workflow „Prüfen und bauen“): Build mit Tests, NixOS-Modul, HTTP/3, Formatierung, YAML
+[group("CI/CD")]
+ci:
+    nix flake check -L
+
+# die Release-Dateien in dist/ (<programm>-<tag>-<ziel>)
+[group("CI/CD")]
+dist tag=("v" + version):
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix build --no-link --print-out-paths .#default)
+    mkdir -p dist
+    find dist -mindepth 1 -delete
+    install -m755 "$out/bin/beispiel" "dist/beispiel-{{ tag }}-x86_64-linux"
+
+# passt der Tag zur Version, liegt er auf master? (Workflow „Release“)
+[group("CI/CD")]
+release-check tag:
+    nix run .#project-release -- check {{ tag }}
+
+# Release mit den Dateien aus `just dist` anlegen, `release` auf den Tag schieben (Workflow „Release“, braucht RELEASE_TOKEN)
+[group("CI/CD")]
+release tag: (release-check tag) (dist tag)
+    nix run .#project-release -- publish {{ tag }}
