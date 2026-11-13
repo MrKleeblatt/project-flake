@@ -14,4 +14,6 @@ jobs:
       NIX_CONFIG: experimental-features = nix-command flakes
     steps:
       - uses: actions/checkout@v4
+      # jeder Merge ist ein Release, also muss die Version höher sein als der letzte Tag
+      - run: nix develop ./dev --command just release-check
       - run: nix develop ./dev --command just ci

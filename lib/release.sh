@@ -1,29 +1,41 @@
-# Releases für Programme nach dem Muster von project-flake, auf GitHub wie auf Forgejo (Codeberg):
+# Releases für Programme nach dem Muster von project-flake, auf GitHub wie auf Forgejo (Codeberg).
+# Jeder Merge nach $BRANCH ist ein Release, sein Tag heißt v<version>:
 #
-#   project-release check <tag>    passt der Tag zur Version, liegt er auf $BRANCH?
-#   project-release publish <tag>  dazu: Release mit den Dateien aus dist/ (und SHA256SUMS) anlegen,
-#                                  dann den Branch `release` auf den Tag schieben (nur vorwärts)
+#   project-release tag      der Tag zur Version: v$VERSION
+#   project-release check    gibt es v$VERSION noch nicht und ist es neuer als der letzte Tag?
+#                            (Pull Request; im Release darf der Tag schon auf dem Commit liegen)
+#   project-release publish  dazu: liegt der Commit auf $BRANCH? Tag setzen, Release mit den
+#                            Dateien aus dist/ (und SHA256SUMS) anlegen
 #
 # NAME, TITLE, VERSION und BRANCH setzt das Paket (lib/release.nix). Für publish im Workflow:
 # RELEASE_TOKEN (dort secrets.GITHUB_TOKEN); GITHUB_SERVER_URL und GITHUB_REPOSITORY setzen GitHub
 # und Forgejo selbst. Ein erneuter Lauf lädt nur hoch, was dem Release noch fehlt.
 
 usage() {
-  echo "Aufruf: project-release check|publish <tag>" >&2
+  echo "Aufruf: project-release tag|check|publish" >&2
   exit 2
 }
-[ $# -eq 2 ] || usage
+[ $# -eq 1 ] || usage
 cmd=$1
-tag=$2
+tag="v$VERSION"
 
+# Tags werden auf origin nachgesehen, so reicht im Pull Request ein flacher Checkout
 check() {
-  if [ "$tag" != "v$VERSION" ]; then
-    echo "$tag passt nicht zur Version $VERSION von $NAME" >&2
+  commit=$(git rev-parse HEAD)
+  tags=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/||')
+  # bei einem annotierten Tag zählt der Commit dahinter (^{})
+  existing=$(git ls-remote --tags origin "refs/tags/$tag" "refs/tags/$tag^{}" | tail -n1 | cut -f1)
+  if [ -n "$existing" ]; then
+    # ein erneuter Lauf des Releases für denselben Commit
+    if [ "$existing" = "$commit" ]; then
+      return
+    fi
+    echo "$tag gibt es schon, für ein Release die Version von $NAME erhöhen" >&2
     exit 1
   fi
-  commit=$(git rev-parse "$tag^{commit}")
-  if ! git merge-base --is-ancestor "$commit" "origin/$BRANCH"; then
-    echo "$tag liegt nicht auf $BRANCH" >&2
+  latest=$(printf '%s\n' "$tags" | sort -V | tail -n1)
+  if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$latest" "$tag" | sort -V | tail -n1)" != "$tag" ]; then
+    echo "$tag ist nicht neuer als $latest" >&2
     exit 1
   fi
 }
@@ -32,8 +44,14 @@ publish() {
   : "${RELEASE_TOKEN:?fehlt (im Workflow: secrets.GITHUB_TOKEN)}"
   : "${GITHUB_SERVER_URL:?fehlt}" "${GITHUB_REPOSITORY:?fehlt}"
 
+  git fetch -q origin "$BRANCH"
+  if ! git merge-base --is-ancestor "$commit" FETCH_HEAD; then
+    echo "$commit liegt nicht auf $BRANCH" >&2
+    exit 1
+  fi
+
   if [ -z "$(find dist -maxdepth 1 -type f ! -name SHA256SUMS -print -quit 2>/dev/null)" ]; then
-    echo "dist/ ist leer, erst \`just dist $tag\`" >&2
+    echo "dist/ ist leer, erst \`just dist\`" >&2
     exit 1
   fi
   sums=$(cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum)
@@ -47,6 +65,12 @@ publish() {
     uploads=""
   fi
   auth=(-H "Authorization: token $RELEASE_TOKEN" -H "Accept: application/json")
+
+  if [ -z "$existing" ]; then
+    git tag "$tag" "$commit"
+    git push -q origin "refs/tags/$tag"
+    echo "Tag $tag gesetzt"
+  fi
 
   if ! release=$(curl -fsS "${auth[@]}" "$api/releases/tags/$tag" 2>/dev/null); then
     # Änderungen seit dem letzten Tag
@@ -74,19 +98,10 @@ publish() {
     fi
     echo "hochgeladen: $asset"
   done
-
-  # ein nachträglich angelegtes älteres Release setzt den Server nicht zurück
-  if git ls-remote --exit-code --heads origin release >/dev/null; then
-    git fetch -q origin release
-    if ! git merge-base --is-ancestor FETCH_HEAD "$commit"; then
-      echo "release ist schon weiter als $tag und bleibt, wo er ist."
-      return
-    fi
-  fi
-  git push origin "$commit:refs/heads/release"
 }
 
 case $cmd in
+  tag) echo "$tag" ;;
   check) check ;;
   publish)
     check

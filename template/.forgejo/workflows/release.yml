@@ -1,9 +1,13 @@
 name: Release
 
-# Ein Tag v… (geschützt) auf master: Tag prüfen, bauen, Release anlegen, `release` nachziehen
+# Jeder Merge nach master (nur per Pull Request): Version prüfen, bauen, Tag v<version> setzen,
+# Release anlegen
 on:
   push:
-    tags: ["v*"]
+    branches: [master]
+
+# zwei Merges kurz hintereinander nacheinander veröffentlichen
+concurrency: release
 
 jobs:
   release:
@@ -17,4 +21,4 @@ jobs:
           fetch-depth: 0
       - env:
           RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: nix develop ./dev --command just release "$GITHUB_REF_NAME"
+        run: nix develop ./dev --command just release

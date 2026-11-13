@@ -22,12 +22,12 @@ dist tag=("v" + version):
     find dist -mindepth 1 -delete
     install -m755 "$out/bin/beispiel" "dist/beispiel-{{ tag }}-x86_64-linux"
 
-# passt der Tag zur Version, liegt er auf master? (Workflow „Release“)
+# ist die Version höher als der letzte Tag? (Workflows „Prüfen und bauen“ und „Release“)
 [group("CI/CD")]
-release-check tag:
-    nix run .#project-release -- check {{ tag }}
+release-check:
+    nix run .#project-release -- check
 
-# Release mit den Dateien aus `just dist` anlegen, `release` auf den Tag schieben (Workflow „Release“, braucht RELEASE_TOKEN)
+# Tag v<version> setzen und Release mit den Dateien aus `just dist` anlegen (Workflow „Release“ nach jedem Merge, braucht RELEASE_TOKEN)
 [group("CI/CD")]
-release tag: (release-check tag) (dist tag)
-    nix run .#project-release -- publish {{ tag }}
+release: release-check dist
+    nix run .#project-release -- publish

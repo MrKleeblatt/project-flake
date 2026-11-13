@@ -22,7 +22,7 @@
   extraPackages ? _pkgs: { },
   # der eigene Teil des NixOS-Moduls (Pfad oder Modul), dazu kommt lib/service.nix
   module ? { },
-  # Branch, auf den Releases zeigen müssen und auf den die Hooks nichts direkt lassen
+  # jeder Merge auf diesen Branch ist ein Release; die Hooks lassen nichts direkt darauf
   branch ? "master",
   # zusätzliche Werte für `services.<name>` und Prüfungen (cfg → [ { assertion; message; } ]) im Check `module`
   moduleTest ? { },
