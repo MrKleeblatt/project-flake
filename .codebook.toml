@@ -1,0 +1,15 @@
+dictionaries = [
+    "de",
+    "en",
+]
+words = [
+    "caddy",
+    "devshell",
+    "forgejo",
+    "nixfmt",
+    "nixos",
+    "nixpkgs",
+    "proj",
+    "shellcheck",
+    "yamllint",
+]
