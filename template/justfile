@@ -7,6 +7,17 @@ version := `sed -n 's/^[[:space:]]*\.version = "\(.*\)",/\1/p' build.zig.zon`
 default:
     @just --list
 
+# vorher `tea login add --url https://codeberg.org --token …` bzw. `gh auth login`
+# Schutzregel für master auf der Forge (`forge` in flake.nix) anlegen oder aktualisieren
+[group("Forge")]
+forge-protect approvals="1":
+    project-forge protect --approvals {{ approvals }}
+
+# die Schutzregeln des Repos
+[group("Forge")]
+forge-show:
+    project-forge show
+
 # Pull Requests (Workflow „Prüfen und bauen“): Build mit Tests, NixOS-Modul, HTTP/3, Formatierung, YAML
 [group("CI/CD")]
 ci:

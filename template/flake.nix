@@ -24,6 +24,10 @@
       # selber einstellen
       name = "beispiel";
       title = "Beispiel";
+      # "codeberg" oder "github": bringt `project-forge` (Schutzregeln für master) mit tea bzw. gh
+      # in die Devshell; die Workflows der Vorlage liegen in .forgejo/, für GitHub nach
+      # .github/workflows/ verschieben
+      forge = "codeberg";
 
       # am besten einfach so lassen
       package = pkgs: pkgs.callPackage ./deploy/package.nix { inherit version; };

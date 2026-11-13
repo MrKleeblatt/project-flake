@@ -1,6 +1,6 @@
 # Alle Ausgaben der Flake eines Programms, siehe README.md:
 #
-#   packages.<system>.{default, <packageName>, project-release} (+ extraPackages)
+#   packages.<system>.{default, <packageName>, project-release, project-forge?} (+ extraPackages)
 #   overlays.default, nixosModules.default
 #   checks.<system>.{package, module, format, yaml?, http3?} (+ extraChecks)
 #   devShells.<system>.ci   die Werkzeuge der Workflows, ohne weitere Inputs
@@ -24,6 +24,8 @@
   module ? { },
   # jeder Merge auf diesen Branch ist ein Release; die Hooks lassen nichts direkt darauf
   branch ? "master",
+  # "github" oder "codeberg": Forge des Repos, für `project-forge` (Schutzregeln) mit gh bzw. tea
+  forge ? null,
   # zusätzliche Werte für `services.<name>` und Prüfungen (cfg → [ { assertion; message; } ]) im Check `module`
   moduleTest ? { },
   # Programm hinter Caddy über HTTP/3, siehe lib/checks.nix
@@ -60,6 +62,24 @@ let
         ;
     };
   hooks = pkgs: pkgs.callPackage ./hooks.nix { inherit branch; };
+
+  forgeCli =
+    pkgs:
+    assert lib.assertOneOf "forge" forge [
+      "github"
+      "codeberg"
+    ];
+    {
+      github = pkgs.gh;
+      codeberg = pkgs.tea;
+    }
+    .${forge};
+  forgeScript =
+    pkgs:
+    pkgs.callPackage ./forge.nix {
+      inherit forge branch;
+      cli = forgeCli pkgs;
+    };
 in
 {
   packages = forSystems systems (
@@ -72,6 +92,7 @@ in
       ${packageName} = server;
       project-release = release pkgs;
     }
+    // lib.optionalAttrs (forge != null) { project-forge = forgeScript pkgs; }
     // extraPackages pkgs
   );
 
@@ -99,6 +120,7 @@ in
     // {
       release = release pkgs;
     }
+    // lib.optionalAttrs (forge != null) { forge = forgeScript pkgs; }
   );
 
   devShells = forSystems systems (pkgs: {
@@ -136,6 +158,10 @@ in
                 yamllint
                 (release pkgs)
               ])
+              ++ lib.optionals (forge != null) [
+                (forgeCli pkgs)
+                (forgeScript pkgs)
+              ]
               ++ shell.packages or [ ];
             shellHook = ''
               # Hooks aus project-flake: kein Commit auf und kein Push nach ${branch}, siehe deploy/release.md

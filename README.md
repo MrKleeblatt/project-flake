@@ -45,6 +45,7 @@ Neues Programm: `nix flake init -t <URL dieses Repos>`.
 | `extraPackages`                                 | `pkgs: { … }`, z.B. statische Binaries für die Releases                                     |
 | `module`                                        | der eigene Teil des NixOS-Moduls                                                            |
 | `branch`                                        | Vorgabe `"master"`: jeder Merge darauf ist ein Release, Hooks lassen nichts direkt darauf   |
+| `forge`                                         | `"github"` oder `"codeberg"`: `project-forge` mit gh bzw. tea in die Devshell               |
 | `moduleTest`                                    | `{ config = { … }; assertions = cfg: [ { assertion; message; } ]; }` für den Check `module` |
 | `smokeTest`                                     | `{ start; requests = [ { path; expect; } ]; }` für den Check `http3`                        |
 | `extraChecks`                                   | `{ pkgs, evalConfig }: { … }`, `evalConfig` wertet NixOS mit dem Modul aus                  |
@@ -53,18 +54,19 @@ Neues Programm: `nix flake init -t <URL dieses Repos>`.
 
 Ausgaben:
 
-- `packages.<system>.{default, <packageName>, project-release}` und
-  `extraPackages`
+- `packages.<system>.{default, <packageName>, project-release}`, mit `forge`
+  auch `project-forge`, und `extraPackages`
 - `overlays.default`, `nixosModules.default` (lib/service.nix und `module`, mit
   dem Paket)
 - `checks.<system>`: `package`, `module`, `format` (nixfmt), `yaml` (yamllint,
   wenn es eine `.yamllint.yaml` gibt), `http3` (mit `smokeTest`), `release`
-  (shellcheck), `extraChecks`
+  (shellcheck), `forge` (shellcheck, mit `forge`), `extraChecks`
 - `devShells.<system>.ci`: git, just, jq, curl, nixfmt, yamllint, ohne weitere
   Inputs, für Workflows, die die Devshell nicht brauchen
   (`nix develop .#ci --command just ci`)
 - `lib.devShells`: die Devshell für `dev/flake.nix`, mit git, just, jq, nixfmt,
-  yamllint, `project-release` und den Hooks
+  yamllint, `project-release`, den Hooks und mit `forge` gh bzw. tea und
+  `project-forge`
 - `formatter.<system>`
 
 ## Der Dienst `services.<name>`
@@ -108,6 +110,27 @@ Auf GitHub wie auf Forgejo (Codeberg), erkannt an `GITHUB_SERVER_URL`. Der
 Workflow gibt das Token als `RELEASE_TOKEN` mit (`secrets.GITHUB_TOKEN`) und
 checkt mit `fetch-depth: 0` aus. Die Dateien in `dist/` heißen
 `<programm>-<tag>-<ziel>`. Ein erneuter Lauf lädt nur hoch, was fehlt.
+
+## Schutzregeln: `project-forge`
+
+Mit `forge = "github"` bzw. `"codeberg"` hat die Devshell gh bzw. tea und:
+
+```
+project-forge protect [--approvals <n>] [--check <name>]
+    Schutzregel für `branch` anlegen oder aktualisieren: nur per Pull Request,
+    kein Force-Push, nicht löschbar, <n> Freigaben (Vorgabe 1, veraltete
+    verfallen), der Check muss grün und der Branch aktuell sein
+project-forge show
+    die Schutzregeln des Repos
+```
+
+Das Repo ergibt sich aus dem Remote `origin`. Vorher anmelden: `gh auth login`
+bzw. `tea login add --url https://codeberg.org --token …`. Der Check ist der Job
+`build` aus `ci.yml`, auf GitHub `build`, auf Forgejo das Muster
+`* / build (pull_request)`; anders heißt er mit `--check`. Den eigenen Pull
+Request freigeben kann man nicht: wer allein arbeitet, nimmt `--approvals 0`.
+Auf GitHub gibt es Schutzregeln für private Repos eines persönlichen Kontos nur
+mit GitHub Pro.
 
 ## Hooks
 
