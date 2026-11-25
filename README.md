@@ -36,7 +36,7 @@ installiert werden müssen.
 | `extraPackages`                                  | `pkgs: { … }`, weitere Pakete                                                               |
 | `module`                                         | der eigene Teil des NixOS-Moduls, sein `config` gilt nur mit `services.<name>.enable`       |
 | `branch`                                         | Vorgabe `"master"`: jeder Merge darauf ist ein Release, Hooks lassen nichts direkt darauf   |
-| `forge`                                          | `"github"` oder `"codeberg"`: `project-forge` mit gh bzw. tea in die Devshell               |
+| `forge`                                          | `"github"` oder `"codeberg"`: gh bzw. tea in die Devshell, `branch-protection`              |
 | `moduleTest`                                     | `{ config = { … }; assertions = cfg: [ { assertion; message; } ]; }` für den Check `module` |
 | `smokeTest`                                      | `{ start; requests = [ { path; expect; } ]; }` für den Check `http3`                        |
 | `extraChecks`                                    | `{ pkgs, evalConfig }: { … }`, `evalConfig` wertet NixOS mit dem Modul aus                  |
@@ -71,19 +71,19 @@ alles andere (auch Ordner, z.B. die Assets einer Webapp) nach
 Ausgaben:
 
 - `packages.<system>.{default, <packageName>…, dist, project-release}`, mit
-  `forge` auch `project-forge`, und `extraPackages`
+  `forge` auch `branch-protection`, und `extraPackages`
 - `overlays.default` (alle Pakete), `nixosModules.default` (lib/service.nix und
   `module`, mit dem Paket)
 - `checks.<system>`: `package` (`default`), `package-<packageName>` (die
   übrigen), `dist`, `module`, `format` (nixfmt), `yaml` (yamllint,
   wenn es eine `.yamllint.yaml` gibt), `http3` (mit `smokeTest`), `release`
-  (shellcheck), `forge` (shellcheck, mit `forge`), `extraChecks`
+  (shellcheck), `branch-protection` (shellcheck, mit `forge`), `extraChecks`
 - `devShells.<system>.ci`: git, just, jq, curl, nixfmt, yamllint, ohne weitere
   Inputs, für Workflows, die die Devshell nicht brauchen
   (`nix develop .#ci --command just ci`)
 - `devShells.<system>.default`: mit git, just, jq, nixfmt, yamllint,
   `project-release`, den `build.tools` aller Pakete, den Hooks und mit `forge`
-  gh bzw. tea und `project-forge`; nennt `devShell` `inputs`, stattdessen
+  gh bzw. tea; nennt `devShell` `inputs`, stattdessen
   `lib.devShells` für `dev/flake.nix`
 
 Braucht die Devshell Inputs, die der Server nicht im Lock haben soll (z.B.
@@ -160,30 +160,39 @@ Auf GitHub wie auf Forgejo (Codeberg), erkannt an `GITHUB_SERVER_URL`. Der
 Workflow gibt das Token als `RELEASE_TOKEN` mit (`secrets.GITHUB_TOKEN`) und
 checkt mit `fetch-depth: 0` aus. Ein erneuter Lauf lädt nur hoch, was fehlt.
 
-## Schutzregeln: `project-forge`
+## Anmeldung und Schutzregeln: `branch-protection`
 
-Mit `forge = "github"` bzw. `"codeberg"` hat die Devshell gh bzw. tea und:
+Mit `forge = "github"` bzw. `"codeberg"` hat die Devshell gh bzw. tea, und das
+Paket `branch-protection` steht bereit. Es ist kein Befehl in der Devshell,
+sondern wird über das justfile aufgerufen (`nix run .#branch-protection -- …`):
 
 ```
-project-forge protect [--approvals <n>] [--check <name>]
+just forge-login
+    geführt anmelden (mit gum), wenn noch nicht geschehen: auf Codeberg mit
+    Link zur Token-Seite und den nötigen Berechtigungen, verdeckter Eingabe
+    und Prüfung des Tokens; auf GitHub `gh auth login`. Das Token speichert
+    tea bzw. gh
+just branch-protect [<n>]
     Schutzregel für `branch` anlegen oder aktualisieren: nur per Pull Request,
     kein Force-Push, nicht löschbar, <n> Freigaben (Vorgabe 1, veraltete
-    verfallen), der Check muss grün und der Branch aktuell sein
-project-forge show
+    verfallen), der Check muss grün und der Branch aktuell sein; meldet vorher
+    an, zeigt die Regel und fragt nach
+just branch-protection
     die Schutzregeln des Repos
 ```
 
-Das Repo ergibt sich aus dem Remote `origin`. Vorher anmelden: `gh auth login`
-bzw. `tea login add --url https://codeberg.org --token …`. Der Check ist der Job
-`build` aus `ci.yml`, auf GitHub `build`, auf Forgejo das Muster
-`* / build (pull_request)`; anders heißt er mit `--check`. Den eigenen Pull
-Request freigeben kann man nicht: wer allein arbeitet, nimmt `--approvals 0`.
-Auf GitHub gibt es Schutzregeln für private Repos eines persönlichen Kontos nur
-mit GitHub Pro.
+Dahinter steht `branch-protection login | protect [--approvals <n>]
+[--check <name>] | show`. Das Repo ergibt sich aus dem Remote `origin`. Ohne
+Terminal (im Workflow) wird nichts gefragt; ist man dann nicht angemeldet,
+bricht es ab. Der Check ist der Job `build` aus `ci.yml`, auf GitHub `build`,
+auf Forgejo das Muster `* / build (pull_request)`; anders heißt er mit
+`--check`. Den eigenen Pull Request freigeben kann man nicht: wer allein
+arbeitet, nimmt `just branch-protect 0`. Auf GitHub gibt es Schutzregeln für
+private Repos eines persönlichen Kontos nur mit GitHub Pro.
 
 ## Hooks
 
 Die Devshell setzt `core.hooksPath` auf die Hooks aus `lib/hooks.nix`: kein
 Commit auf und kein Push nach `branch`, entwickelt wird auf `dev/…` und per Pull
 Request gemerget. Verbindlich sind die Schutzregeln der Forge, siehe
-`project-forge`.
+`branch-protection`.

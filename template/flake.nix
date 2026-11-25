@@ -25,11 +25,11 @@
       name = "beispiel";
       title = "Beispiel";
       # "codeberg" oder "github"
-      # Das entscheidet, ob `gh` oder `tea` in die Devshell geladen wird. Dazu kommt
-      # `project-forge` als command in die Devshell, der Branch-protection-Regeln
-      # automatisch einstellt. Die Workflows liegen für beide in `.forgejo/workflows/` und
-      # `.github/workflows/`; Forgejo nimmt `.forgejo/`, GitHub `.github/`, der andere Ordner
-      # kann weg.
+      # Das entscheidet, ob `gh` oder `tea` in die Devshell geladen wird. Dazu kommen
+      # `just forge-login` (geführte Anmeldung) und `just branch-protect` (stellt die
+      # Schutzregeln für master ein), siehe justfile. Die Workflows liegen für beide in
+      # `.forgejo/workflows/` und `.github/workflows/`; Forgejo nimmt `.forgejo/`, GitHub
+      # `.github/`, der andere Ordner kann weg.
       forge = "codeberg";
 
       # einfach so lassen

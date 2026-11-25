@@ -1,23 +1,28 @@
 # Schutzregeln der Forge für Programme nach dem Muster von project-flake, mit gh (GitHub) bzw.
-# tea (Forgejo, Codeberg). Das Repo ergibt sich aus dem Remote origin, angemeldet sein muss man
-# vorher (`gh auth login` bzw. `tea login add --url https://codeberg.org --token …`).
+# tea (Forgejo, Codeberg) und gum für die Abfragen. Das Repo ergibt sich aus dem Remote origin.
+# Aufgerufen über das justfile (`just forge-login`, `just branch-protect`, `just branch-protection`).
 #
-#   project-forge protect [--approvals <n>] [--check <name>]
+#   branch-protection login
+#       geführt bei der Forge anmelden, wenn noch nicht geschehen; das Token speichert gh bzw. tea
+#   branch-protection protect [--approvals <n>] [--check <name>]
 #       Schutzregel für $BRANCH anlegen oder aktualisieren: nur per Pull Request, kein Force-Push,
 #       nicht löschbar, <n> Freigaben (Vorgabe 1, veraltete verfallen), der Check aus „Prüfen und
-#       bauen“ muss grün und der Branch aktuell sein
-#   project-forge show
+#       bauen“ muss grün und der Branch aktuell sein; meldet vorher an und fragt nach
+#   branch-protection show
 #       die Schutzregeln des Repos
 #
-# FORGE (github oder codeberg) und BRANCH setzt das Paket (lib/forge.nix).
+# FORGE (github oder codeberg) und BRANCH setzt das Paket (lib/branch-protection.nix).
 
 usage() {
-  echo "Aufruf: project-forge protect [--approvals <n>] [--check <name>] | show" >&2
+  echo "Aufruf: branch-protection login | protect [--approvals <n>] [--check <name>] | show" >&2
   exit 2
 }
 [ $# -ge 1 ] || usage
 cmd=$1
 shift
+
+codeberg=https://codeberg.org
+tokens=$codeberg/user/settings/applications
 
 approvals=1
 # der Job `build` aus .forgejo/ bzw. .github/workflows/ci.yml; Forgejo nennt ihn
@@ -43,6 +48,60 @@ while [ $# -gt 0 ]; do
     *) usage ;;
   esac
 done
+
+# gum braucht ein Terminal; im Workflow wird nichts gefragt
+interactive() {
+  [ -t 0 ] && [ -t 1 ]
+}
+
+box() {
+  gum style --border rounded --border-foreground 212 --padding "0 1" "$@"
+}
+
+logged_in() {
+  case $FORGE in
+    github) gh auth status >/dev/null 2>&1 ;;
+    codeberg) tea logins list -o json | jq -e --arg url "$codeberg" 'any(.[]; .url == $url)' >/dev/null ;;
+  esac
+}
+
+github_login() {
+  # gh fragt selbst alles ab und speichert das Token
+  gh auth login --hostname github.com
+}
+
+codeberg_login() {
+  box "Anmeldung bei Codeberg" "" \
+    "1. Token anlegen: $tokens" \
+    "   unter „Zugangstoken generieren“, Name z.B. tea" \
+    "2. Berechtigungen: repository „Lesen und Schreiben“, user „Lesen“" \
+    "3. Das Token wird nur einmal angezeigt: kopieren und hier einfügen" \
+    "" \
+    "tea speichert es, danach ist keine Anmeldung mehr nötig."
+  if command -v xdg-open >/dev/null && gum confirm "Seite im Browser öffnen?"; then
+    xdg-open "$tokens" >/dev/null 2>&1 || true
+  fi
+  token=$(gum input --password --header "Token von Codeberg" --placeholder "Token einfügen")
+  if [ -z "$token" ]; then
+    echo "kein Token eingegeben" >&2
+    exit 1
+  fi
+  # tea prüft das Token beim Anlegen; über die Umgebung, damit es nicht in der Prozessliste steht
+  GITEA_SERVER_TOKEN=$token gum spin --show-error --title "Token prüfen und speichern …" -- \
+    tea login add --name codeberg.org --url "$codeberg"
+}
+
+login() {
+  if logged_in; then
+    return
+  fi
+  if ! interactive; then
+    echo "bei der Forge nicht angemeldet: im Terminal \`just forge-login\` aufrufen" >&2
+    exit 1
+  fi
+  "${FORGE}_login"
+  gum style --foreground 2 "✓ bei $FORGE angemeldet"
+}
 
 github_protect() {
   repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
@@ -108,7 +167,23 @@ codeberg_protect() {
   fi
 }
 
+protect() {
+  login
+  if interactive; then
+    box "Schutzregel für $BRANCH auf $FORGE" "" \
+      "• nur per Pull Request, kein Force-Push, nicht löschbar" \
+      "• $approvals Freigabe(n), veraltete verfallen" \
+      "• der Check „$check“ muss grün und der Branch aktuell sein"
+    if [ "$approvals" -gt 0 ]; then
+      gum style --faint "Den eigenen Pull Request freigeben kann man nicht: allein besser --approvals 0."
+    fi
+    gum confirm "Anlegen bzw. aktualisieren?" || exit 1
+  fi
+  "${FORGE}_protect"
+}
+
 show() {
+  login
   case $FORGE in
     github)
       repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
@@ -122,7 +197,14 @@ show() {
 }
 
 case $cmd in
-  protect) "${FORGE}_protect" ;;
+  login)
+    if logged_in; then
+      gum style --foreground 2 "✓ schon bei $FORGE angemeldet"
+    else
+      login
+    fi
+    ;;
+  protect) protect ;;
   show) show ;;
   *) usage ;;
 esac

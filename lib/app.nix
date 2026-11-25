@@ -1,6 +1,6 @@
 # Alle Ausgaben der Flake eines Programms, siehe README.md:
 #
-#   packages.<system>.{default, <packageName>…, dist, project-release, project-forge?} (+ extraPackages)
+#   packages.<system>.{default, <packageName>…, dist, project-release, branch-protection?} (+ extraPackages)
 #   overlays.default, nixosModules.default
 #   checks.<system>.{package, package-<packageName>…, dist, module, format, yaml?, http3?} (+ extraChecks)
 #   devShells.<system>.default   die Devshell, mit den `build.tools` aller Pakete (ohne dev/flake.nix)
@@ -27,7 +27,8 @@
   module ? { },
   # jeder Merge auf diesen Branch ist ein Release; die Hooks lassen nichts direkt darauf
   branch ? "master",
-  # "github" oder "codeberg": Forge des Repos, für `project-forge` (Schutzregeln) mit gh bzw. tea
+  # "github" oder "codeberg": Forge des Repos; gh bzw. tea in der Devshell und `branch-protection`
+  # (Anmeldung und Schutzregeln, über das justfile)
   forge ? null,
   # zusätzliche Werte für `services.<name>` und Prüfungen (cfg → [ { assertion; message; } ]) im Check `module`
   moduleTest ? { },
@@ -217,9 +218,9 @@ let
       codeberg = pkgs.tea;
     }
     .${forge};
-  forgeScript =
+  branchProtection =
     pkgs:
-    pkgs.callPackage ./forge.nix {
+    pkgs.callPackage ./branch-protection.nix {
       inherit forge branch;
       cli = forgeCli pkgs;
     };
@@ -250,10 +251,8 @@ let
             (release pkgs)
           ])
           ++ lib.concatMap (p: p.build.tools or [ ]) (entries pkgs)
-          ++ lib.optionals (forge != null) [
-            (forgeCli pkgs)
-            (forgeScript pkgs)
-          ]
+          # branch-protection nicht, das ruft das justfile mit `nix run` auf
+          ++ lib.optional (forge != null) (forgeCli pkgs)
           ++ shell.packages or [ ];
         shellHook = ''
           # Hooks aus project-flake: kein Commit auf und kein Push nach ${branch}, siehe README.md von project-flake
@@ -277,7 +276,7 @@ in
       dist = dist pkgs;
       project-release = release pkgs;
     }
-    // lib.optionalAttrs (forge != null) { project-forge = forgeScript pkgs; }
+    // lib.optionalAttrs (forge != null) { branch-protection = branchProtection pkgs; }
     // extraPackages pkgs
   );
 
@@ -314,7 +313,7 @@ in
       # mit shellcheck
       release = release pkgs;
     }
-    // lib.optionalAttrs (forge != null) { forge = forgeScript pkgs; }
+    // lib.optionalAttrs (forge != null) { branch-protection = branchProtection pkgs; }
   );
 
   # ci für `systems`, default für `devSystems`
