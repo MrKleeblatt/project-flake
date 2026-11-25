@@ -1,0 +1,28 @@
+name: Release
+
+# Jeder Merge nach master (nur per Pull Request): Version prüfen, bauen, Tag v<version> setzen,
+# Release anlegen
+on:
+  push:
+    branches: [master]
+
+# zwei Merges kurz hintereinander nacheinander veröffentlichen
+concurrency: release
+
+# Tag und Release mit dem GITHUB_TOKEN anlegen
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: beispiel
+    env:
+      NIX_CONFIG: experimental-features = nix-command flakes
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # master und die älteren Tags, für die Prüfung und die Änderungsliste
+          fetch-depth: 0
+      - env:
+          RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: nix develop --command just release
