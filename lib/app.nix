@@ -3,7 +3,8 @@
 #   packages.<system>.{default, <packageName>…, dist, project-release, project-forge?} (+ extraPackages)
 #   overlays.default, nixosModules.default
 #   checks.<system>.{package, package-<packageName>…, dist, module, format, yaml?, http3?} (+ extraChecks)
-#   devShells.<system>.default   die Devshell, mit den `build.tools` aller Pakete
+#   devShells.<system>.default   die Devshell, mit den `build.tools` aller Pakete (ohne dev/flake.nix)
+#   lib.devShells                die Devshell für dev/flake.nix, wenn `devShell` `inputs` nennt
 #   devShells.<system>.ci        die Werkzeuge der Workflows
 #   formatter.<system>
 {
@@ -16,8 +17,9 @@
   # einzige Stelle der Versionsnummer, z.B. `project.lib.zigVersion ./build.zig.zon`; Tags heißen v<version>
   version,
   systems ? [ "x86_64-linux" ],
-  # packages.nix: { pkgs, lib, version } → [ { packageName; src; build; release; meta; } ], siehe
-  # buildPackage; `default` und der Dienst ist das Paket mit `packageName == name`, sonst das erste
+  # packages.nix: { pkgs, lib, version, ... } → [ { packageName; src; build; release; meta; dist?; } ],
+  # siehe buildPackage; `default` und der Dienst ist das Paket mit `packageName == name` (ohne
+  # `build.target`), sonst das erste
   packages,
   extraPackages ? _pkgs: { },
   # der eigene Teil des NixOS-Moduls (Pfad oder Modul), dazu kommt lib/service.nix; sein `config`
@@ -33,8 +35,10 @@
   smokeTest ? null,
   # { pkgs, evalConfig } → { <name> = Derivation; }
   extraChecks ? _: { },
-  # { pkgs, system } → Argumente für mkShell (`packages`, `shellHook`, Variablen, optional `mkShell`,
-  # Vorgabe pkgs.mkShellNoCC), zusätzlich zu den `build.tools` der Pakete
+  # { pkgs, system, inputs? } → Argumente für mkShell (`packages`, `shellHook`, Variablen, optional
+  # `mkShell`, Vorgabe pkgs.mkShellNoCC), zusätzlich zu den `build.tools` der Pakete. Nennt die
+  # Funktion `inputs`, braucht die Devshell weitere Inputs: dann kommt sie aus dev/flake.nix
+  # (`lib.devShells inputs`, die Inputs von dort), damit sie nicht im Lock der Server landen
   devShell ? _: { },
   devSystems ? systems,
 }:
@@ -42,17 +46,12 @@ let
   inherit (nixpkgs) lib;
   forSystems = systems: f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-  # die Einträge aus packages.nix; die Datei bekommt nur die Argumente, die sie nennt
+  # die Einträge aus packages.nix
   entries =
     pkgs:
-    let
-      f = if builtins.isFunction packages then packages else import packages;
-    in
-    f (
-      builtins.intersectAttrs (lib.functionArgs f) {
-        inherit pkgs lib version;
-      }
-    );
+    (if builtins.isFunction packages then packages else import packages) {
+      inherit pkgs lib version;
+    };
 
   # ein Eintrag aus packages.nix als Derivation:
   #
@@ -60,76 +59,91 @@ let
   #   build.tools          Programme, die dafür gebraucht werden (just ist immer dabei); auch in der Devshell
   #   build.doChecks       Tests ausführen, Vorgabe false
   #   build.checkCommand   Vorgabe `just test`
+  #   build.target         Ziel eines Cross-Builds (z.B. "aarch64-linux-musl"): steht in den
+  #                        Release-Dateien statt des Systems, das Paket heißt <packageName>-<target>
+  #   build.extra          weitere Attribute für mkDerivation (buildInputs, env, npmDeps, preBuild, …)
   #   release              Pfade im Quellordner nach dem Build: ausführbare Dateien kommen nach
   #                        $out/bin, alles andere (auch Ordner) nach $out/share/<packageName>
+  #   dist                 Vorgabe true; false: nicht ins Release
   buildPackage =
     pkgs: p:
     let
       b = p.build;
       bases = map baseNameOf p.release;
+      target = b.target or null;
     in
     assert lib.assertMsg (p.release != [ ]) "${p.packageName}: `release` ist leer";
     assert lib.assertMsg (lib.allUnique bases)
       "${p.packageName}: doppelte Dateinamen in `release`: ${toString bases}";
-    pkgs.stdenv.mkDerivation {
-      pname = p.packageName;
-      inherit version;
-      inherit (p) src;
-      nativeBuildInputs = [ pkgs.just ] ++ b.tools or [ ];
-      doCheck = b.doChecks or false;
-      dontConfigure = true;
-      buildPhase = ''
-        runHook preBuild
-        # Compiler und Werkzeuge wollen einen Cache
-        export HOME=$TMPDIR
-        ${b.command}
-        runHook postBuild
-      '';
-      checkPhase = ''
-        runHook preCheck
-        ${b.checkCommand or "just test"}
-        runHook postCheck
-      '';
-      installPhase = ''
-        runHook preInstall
-        mkdir -p $out
-        share=$out/share/${p.packageName}
-        add() {
-          if [ -d "$1" ]; then
-            mkdir -p "$share"
-            cp -r "$1" "$share/"
-          elif [ -x "$1" ]; then
-            install -Dm755 "$1" "$out/bin/$(basename "$1")"
-          else
-            install -Dm644 "$1" "$share/$(basename "$1")"
-          fi
-        }
-        ${lib.concatMapStrings (path: ''
-          add ${lib.escapeShellArg path}
-        '') p.release}
-        ${lib.optionalString (p ? meta.mainProgram) ''
-          if [ ! -x $out/bin/${p.meta.mainProgram} ]; then
-            echo "${p.packageName}: meta.mainProgram ${p.meta.mainProgram} ist keine ausführbare Datei aus \`release\`" >&2
-            exit 1
-          fi
-        ''}
-        runHook postInstall
-      '';
-      # für lib/dist.nix
-      passthru.release = bases;
-      meta = p.meta or { };
-    };
+    pkgs.stdenv.mkDerivation (
+      {
+        pname = p.packageName + lib.optionalString (target != null) "-${target}";
+        inherit version;
+        inherit (p) src;
+        nativeBuildInputs = [ pkgs.just ] ++ b.tools or [ ];
+        doCheck = b.doChecks or false;
+        dontConfigure = true;
+        buildPhase = ''
+          runHook preBuild
+          # Compiler und Werkzeuge wollen einen Cache
+          export HOME=$TMPDIR
+          ${b.command}
+          runHook postBuild
+        '';
+        checkPhase = ''
+          runHook preCheck
+          ${b.checkCommand or "just test"}
+          runHook postCheck
+        '';
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out
+          share=$out/share/${p.packageName}
+          add() {
+            if [ -d "$1" ]; then
+              mkdir -p "$share"
+              cp -r "$1" "$share/"
+            elif [ -x "$1" ]; then
+              install -Dm755 "$1" "$out/bin/$(basename "$1")"
+            else
+              install -Dm644 "$1" "$share/$(basename "$1")"
+            fi
+          }
+          ${lib.concatMapStrings (path: ''
+            add ${lib.escapeShellArg path}
+          '') p.release}
+          ${lib.optionalString (p ? meta.mainProgram) ''
+            if [ ! -x $out/bin/${p.meta.mainProgram} ]; then
+              echo "${p.packageName}: meta.mainProgram ${p.meta.mainProgram} ist keine ausführbare Datei aus \`release\`" >&2
+              exit 1
+            fi
+          ''}
+          runHook postInstall
+        '';
+        # für lib/dist.nix
+        passthru = {
+          inherit (p) packageName;
+          inherit target;
+          release = bases;
+          dist = p.dist or true;
+        };
+        meta = p.meta or { };
+      }
+      // b.extra or { }
+    );
 
   buildAll =
     pkgs:
     let
       built = map (buildPackage pkgs) (entries pkgs);
       named = builtins.filter (p: p.pname == name) built;
+      inDist = builtins.filter (p: p.dist) built;
     in
     assert lib.assertMsg (built != [ ]) "packages.nix: keine Pakete";
     {
       packages = lib.listToAttrs (map (p: lib.nameValuePair p.pname p) built);
       default = if named != [ ] then builtins.head named else builtins.head built;
+      inherit inDist;
     };
 
   # der eigene Teil des Moduls; sein `config` (oder bei einem Modul ohne `config`/`options` alles
@@ -189,7 +203,7 @@ let
     pkgs:
     pkgs.callPackage ./dist.nix {
       inherit name version;
-      packages = builtins.attrValues (buildAll pkgs).packages;
+      packages = (buildAll pkgs).inDist;
     };
 
   forgeCli =
@@ -209,6 +223,47 @@ let
       inherit forge branch;
       cli = forgeCli pkgs;
     };
+  # braucht die Devshell weitere Inputs (aus dev/flake.nix)?
+  devInputs = lib.functionArgs devShell ? inputs;
+  mkDevShell =
+    pkgs: inputs:
+    let
+      inherit (pkgs.stdenv.hostPlatform) system;
+      shell = devShell (
+        {
+          inherit pkgs system;
+        }
+        // lib.optionalAttrs devInputs { inherit inputs; }
+      );
+      mkShell = shell.mkShell or pkgs.mkShellNoCC;
+    in
+    mkShell (
+      builtins.removeAttrs shell [ "mkShell" ]
+      // {
+        packages =
+          (with pkgs; [
+            git
+            just
+            jq
+            nixfmt
+            yamllint
+            (release pkgs)
+          ])
+          ++ lib.concatMap (p: p.build.tools or [ ]) (entries pkgs)
+          ++ lib.optionals (forge != null) [
+            (forgeCli pkgs)
+            (forgeScript pkgs)
+          ]
+          ++ shell.packages or [ ];
+        shellHook = ''
+          # Hooks aus project-flake: kein Commit auf und kein Push nach ${branch}, siehe README.md von project-flake
+          if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+            git -C "$root" config core.hooksPath ${hooks pkgs}
+          fi
+        ''
+        + shell.shellHook or "";
+      }
+    );
 in
 {
   packages = forSystems systems (
@@ -278,44 +333,19 @@ in
         };
       }))
       (
-        forSystems devSystems (
-          pkgs:
-          let
-            inherit (pkgs.stdenv.hostPlatform) system;
-            shell = devShell { inherit pkgs system; };
-            mkShell = shell.mkShell or pkgs.mkShellNoCC;
-          in
-          {
-            default = mkShell (
-              builtins.removeAttrs shell [ "mkShell" ]
-              // {
-                packages =
-                  (with pkgs; [
-                    git
-                    just
-                    jq
-                    nixfmt
-                    yamllint
-                    (release pkgs)
-                  ])
-                  ++ lib.concatMap (p: p.build.tools or [ ]) (entries pkgs)
-                  ++ lib.optionals (forge != null) [
-                    (forgeCli pkgs)
-                    (forgeScript pkgs)
-                  ]
-                  ++ shell.packages or [ ];
-                shellHook = ''
-                  # Hooks aus project-flake: kein Commit auf und kein Push nach ${branch}, siehe README.md von project-flake
-                  if root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-                    git -C "$root" config core.hooksPath ${hooks pkgs}
-                  fi
-                ''
-                + shell.shellHook or "";
-              }
-            );
-          }
+        lib.optionalAttrs (!devInputs) (
+          forSystems devSystems (pkgs: {
+            default = mkDevShell pkgs { };
+          })
         )
       );
+
+  # für dev/flake.nix: `outputs = inputs: { devShells = inputs.app.lib.devShells inputs; };`
+  lib.devShells =
+    inputs:
+    lib.genAttrs devSystems (system: {
+      default = mkDevShell inputs.nixpkgs.legacyPackages.${system} inputs;
+    });
 
   formatter = forSystems systems (pkgs: pkgs.nixfmt);
 }

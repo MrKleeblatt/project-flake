@@ -40,26 +40,29 @@ installiert werden müssen.
 | `moduleTest`                                     | `{ config = { … }; assertions = cfg: [ { assertion; message; } ]; }` für den Check `module` |
 | `smokeTest`                                      | `{ start; requests = [ { path; expect; } ]; }` für den Check `http3`                        |
 | `extraChecks`                                    | `{ pkgs, evalConfig }: { … }`, `evalConfig` wertet NixOS mit dem Modul aus                  |
-| `devShell`                                       | `{ pkgs, system }: { packages; shellHook; …Variablen; mkShell? }`                           |
+| `devShell`                                       | `{ pkgs, system, inputs? }: { packages; shellHook; …Variablen; mkShell? }`, siehe unten     |
 | `devSystems`                                     | Vorgabe `systems`, für die Devshell                                                         |
 
 ### packages.nix
 
-Eine Funktion `{ pkgs, lib, version }:` (sie bekommt nur, was sie nennt), die
-eine Liste von Paketen liefert. Das Paket mit `packageName == name` (sonst das
+Eine Funktion `{ pkgs, lib, version, ... }:`, die eine Liste von Paketen
+liefert. Das Paket mit `packageName == name` und ohne `build.target` (sonst das
 erste) ist `default` und läuft als Dienst; es hat `meta.mainProgram` und
 versteht `--socket <pfad>`.
 
-| Feld                 |                                                                               |
-| -------------------- | ----------------------------------------------------------------------------- |
-| `packageName`        | Name in `packages`, im Overlay und vorne in den Release-Dateien               |
-| `src`                | die Quellen, z.B. `lib.fileset.toSource`                                      |
-| `build.command`      | ein Befehl im Quellordner, der baut (z.B. `just build`)                       |
-| `build.tools`        | Programme zum Bauen, just ist immer dabei; sie kommen auch in die Devshell    |
-| `build.doChecks`     | Tests ausführen, Vorgabe `false`                                              |
-| `build.checkCommand` | Vorgabe `"just test"`                                                         |
-| `release`            | Pfade im Quellordner nach dem Build, siehe Releases                           |
-| `meta`               | wie bei nixpkgs; `mainProgram` muss eine ausführbare Datei aus `release` sein |
+| Feld                 |                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| `packageName`        | Name in `packages`, im Overlay und vorne in den Release-Dateien                       |
+| `src`                | die Quellen, z.B. `lib.fileset.toSource`                                              |
+| `build.command`      | ein Befehl im Quellordner, der baut (z.B. `just build`)                               |
+| `build.tools`        | Programme zum Bauen, just ist immer dabei; sie kommen auch in die Devshell            |
+| `build.doChecks`     | Tests ausführen, Vorgabe `false`                                                      |
+| `build.checkCommand` | Vorgabe `"just test"`                                                                 |
+| `build.target`       | Ziel eines Cross-Builds, statt des Systems im Release; Paket `<packageName>-<target>` |
+| `build.extra`        | weitere Attribute für `mkDerivation`, z.B. `buildInputs`, `npmDeps`, `preBuild`       |
+| `dist`               | Vorgabe `true`; `false`: das Paket kommt nicht ins Release                            |
+| `release`            | Pfade im Quellordner nach dem Build, siehe Releases                                   |
+| `meta`               | wie bei nixpkgs; `mainProgram` muss eine ausführbare Datei aus `release` sein         |
 
 Ins Paket kommen genau die Dateien aus `release`: ausführbare nach `bin/`,
 alles andere (auch Ordner, z.B. die Assets einer Webapp) nach
@@ -80,7 +83,24 @@ Ausgaben:
   (`nix develop .#ci --command just ci`)
 - `devShells.<system>.default`: mit git, just, jq, nixfmt, yamllint,
   `project-release`, den `build.tools` aller Pakete, den Hooks und mit `forge`
-  gh bzw. tea und `project-forge`
+  gh bzw. tea und `project-forge`; nennt `devShell` `inputs`, stattdessen
+  `lib.devShells` für `dev/flake.nix`
+
+Braucht die Devshell Inputs, die der Server nicht im Lock haben soll (z.B.
+nixpkgs-unstable), nennt `devShell` `inputs` und sie kommt aus einer eigenen
+Flake `dev/flake.nix` (`nix develop ./dev`, `.envrc`: `use flake ./dev`):
+
+```nix
+{
+  inputs = {
+    app.url = "path:..";
+    nixpkgs.follows = "app/nixpkgs";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+  outputs = inputs: { devShells = inputs.app.lib.devShells inputs; };
+}
+```
+
 - `formatter.<system>`
 
 ## Der Dienst `services.<name>`
@@ -123,13 +143,15 @@ project-release publish  dazu: liegt der Commit auf `branch`? Tag setzen und Rel
 
 Welche Dateien ins Release kommen, steht in `release` der Pakete. Daraus baut
 `packages.<system>.dist` einen Ordner, den `just dist` nach `dist/` kopiert; als
-Check baut er schon im Pull Request. Vorne steht der `packageName`, die Datei
-nur, wenn sie anders heißt; ausführbare Dateien bekommen das System, Ordner
-werden zu `.tar.gz`, andere Dateien behalten ihre Endung:
+Check baut er schon im Pull Request. Vorne steht der `packageName`, wenn der
+Dateiname nicht schon mit ihm beginnt; ausführbare Dateien bekommen das System
+(bzw. `build.target`), Ordner werden zu `.tar.gz`, andere Dateien behalten ihre
+Endung:
 
 ```
 zig-out/bin/beispiel   → beispiel-v1.0.0-x86_64-linux
 zig-out/bin/helfer     → beispiel-helfer-v1.0.0-x86_64-linux
+zig-out/bin/beispiel-x → beispiel-x-v1.0.0-x86_64-linux
 CHANGELOG.md           → beispiel-CHANGELOG-v1.0.0.md
 zig-out/webapp         → beispiel-webapp-v1.0.0.tar.gz
 ```
