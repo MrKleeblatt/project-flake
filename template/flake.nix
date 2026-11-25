@@ -24,31 +24,16 @@
       # selber einstellen
       name = "beispiel";
       title = "Beispiel";
-      # "codeberg" oder "github": bringt `project-forge` (Schutzregeln für master) mit tea bzw. gh
-      # in die Devshell; die Workflows der Vorlage liegen in .forgejo/, für GitHub nach
-      # .github/workflows/ verschieben
+      # "codeberg" oder "github"
+      # Das entscheidet, ob `gh` oder `tea` in die Devshell geladen wird. Dazu kommt
+      # `project-forge` als command in die Devshell, der Branch-protection-Regeln
+      # automatisch einstellt. Die Workflows liegen für beide in `.forgejo/workflows/` und
+      # `.github/workflows/`; Forgejo nimmt `.forgejo/`, GitHub `.github/`, der andere Ordner
+      # kann weg.
       forge = "codeberg";
 
-      # am besten einfach so lassen
-      package = pkgs: pkgs.callPackage ./deploy/package.nix { inherit version; };
-      module = ./deploy/module.nix;
-
-      # Optional.
-      # Hiermit wird das Programm hinter Caddy über HTTP/3 getestet.
-      smokeTest = {
-        start = "exec beispiel --socket $SOCKET";
-        requests = [
-          {
-            path = "/";
-            expect = "";
-          }
-        ];
-      };
-
-      devShell =
-        { pkgs, ... }:
-        {
-          packages = with pkgs; [ zig ];
-        };
+      # einfach so lassen
+      packages = ./packages.nix;
+      module = ./modules.nix;
     };
 }

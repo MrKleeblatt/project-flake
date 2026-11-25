@@ -2,3 +2,5 @@ dist/
 result
 result-*
 .direnv/
+zig-out/
+.zig-cache/

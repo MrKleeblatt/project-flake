@@ -5,15 +5,11 @@ Projekt ermöglicht.
 
 ## Was diese Flake bereitstellt
 
-Einen Befehl, um ein neues Projekt anzufangen. Schreibt das Template in
-<proj-dir> (Standard: ~/projects)
+Eine Vorlage für neue Projekte: `nix flake init -t <URL dieses Repos>`.
 
-```
-proj-create [<proj-dir>]
-```
-
-Eine Devshell für das Projekt, in der alle definierten Tools bereitgestellt
-werden, sodass sie nicht global auf dem System installiert werden müssen.
+Eine Devshell für das Projekt (`nix develop` oder direnv), in der alle
+definierten Tools bereitgestellt werden, sodass sie nicht global auf dem System
+installiert werden müssen.
 
 ## Was (auf dem Server) vorausgesetzt wird
 
@@ -22,51 +18,69 @@ werden, sodass sie nicht global auf dem System installiert werden müssen.
 
 ## Was diese Flake im Template erstellt
 
-| Datei              | Funktion                                                       |
-| ------------------ | -------------------------------------------------------------- |
-| flake.nix          | Name, Version, Paket, eigene Checks                            |
-| dev/flake.nix      | die Programme der Devshell mit ihren weiteren Inputs           |
-| deploy/package.nix | das Paket, das durch das Projekt erstellt wird                 |
-| deploy/module.nix  | die Einbindung des Pakets in den Server per NixOS-Modul        |
-| deploy/release.md  | Hinweise zum Ablauf des Release und zu Einstellungen der Forge |
-| justfile           | leere Regeln, wie das Projekt zu bauen ist                     |
-| .forgejo/          | rufen nur `just` auf                                           |
-| .github/workflows/ | ruft nur `just` auf                                            |
+| Datei              | Funktion                                                             |
+| ------------------ | -------------------------------------------------------------------- |
+| flake.nix          | Name, Version, Forge                                                 |
+| packages.nix       | die Pakete: Quellen, Build, Tests, Dateien für das Release           |
+| modules.nix        | die Einbindung des Pakets in den Server per NixOS-Modul              |
+| justfile           | wie das Projekt gebaut und getestet wird, CI/CD                      |
+| CHANGELOG.md       | kommt mit ins Release                                                |
+| .forgejo/          | Workflows für Forgejo (Codeberg), rufen nur `just` auf               |
+| .github/workflows/ | dieselben für GitHub; Forgejo nimmt `.forgejo/`, der andere kann weg |
 
-Neues Programm: `nix flake init -t <URL dieses Repos>`.
+| Argument                                         |                                                                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `self`, `nixpkgs`, `name`, `version`, `packages` | Pflicht. `packages` ist packages.nix, siehe unten.                                          |
+| `title`                                          | Vorgabe `name`                                                                              |
+| `systems`                                        | Vorgabe `[ "x86_64-linux" ]`, für Pakete und Checks                                         |
+| `extraPackages`                                  | `pkgs: { … }`, weitere Pakete                                                               |
+| `module`                                         | der eigene Teil des NixOS-Moduls, sein `config` gilt nur mit `services.<name>.enable`       |
+| `branch`                                         | Vorgabe `"master"`: jeder Merge darauf ist ein Release, Hooks lassen nichts direkt darauf   |
+| `forge`                                          | `"github"` oder `"codeberg"`: `project-forge` mit gh bzw. tea in die Devshell               |
+| `moduleTest`                                     | `{ config = { … }; assertions = cfg: [ { assertion; message; } ]; }` für den Check `module` |
+| `smokeTest`                                      | `{ start; requests = [ { path; expect; } ]; }` für den Check `http3`                        |
+| `extraChecks`                                    | `{ pkgs, evalConfig }: { … }`, `evalConfig` wertet NixOS mit dem Modul aus                  |
+| `devShell`                                       | `{ pkgs, system }: { packages; shellHook; …Variablen; mkShell? }`                           |
+| `devSystems`                                     | Vorgabe `systems`, für die Devshell                                                         |
 
+### packages.nix
 
-| Argument                                        |                                                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `self`, `nixpkgs`, `name`, `version`, `package` | Pflicht. Das Paket hat `meta.mainProgram` und versteht `--socket <pfad>`.                   |
-| `title`                                         | Vorgabe `name`                                                                              |
-| `systems`                                       | Vorgabe `[ "x86_64-linux" ]`, für Pakete und Checks                                         |
-| `packageName`                                   | Vorgabe `name`, Name des Pakets in `packages` und im Overlay                                |
-| `extraPackages`                                 | `pkgs: { … }`, z.B. statische Binaries für die Releases                                     |
-| `module`                                        | der eigene Teil des NixOS-Moduls                                                            |
-| `branch`                                        | Vorgabe `"master"`: jeder Merge darauf ist ein Release, Hooks lassen nichts direkt darauf   |
-| `forge`                                         | `"github"` oder `"codeberg"`: `project-forge` mit gh bzw. tea in die Devshell               |
-| `moduleTest`                                    | `{ config = { … }; assertions = cfg: [ { assertion; message; } ]; }` für den Check `module` |
-| `smokeTest`                                     | `{ start; requests = [ { path; expect; } ]; }` für den Check `http3`                        |
-| `extraChecks`                                   | `{ pkgs, evalConfig }: { … }`, `evalConfig` wertet NixOS mit dem Modul aus                  |
-| `devShell`                                      | `{ pkgs, inputs, system }: { packages; shellHook; …Variablen; mkShell? }`                   |
-| `devSystems`                                    | Vorgabe `systems`, für die Devshell                                                         |
+Eine Funktion `{ pkgs, lib, version }:` (sie bekommt nur, was sie nennt), die
+eine Liste von Paketen liefert. Das Paket mit `packageName == name` (sonst das
+erste) ist `default` und läuft als Dienst; es hat `meta.mainProgram` und
+versteht `--socket <pfad>`.
+
+| Feld                 |                                                                               |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `packageName`        | Name in `packages`, im Overlay und vorne in den Release-Dateien               |
+| `src`                | die Quellen, z.B. `lib.fileset.toSource`                                      |
+| `build.command`      | ein Befehl im Quellordner, der baut (z.B. `just build`)                       |
+| `build.tools`        | Programme zum Bauen, just ist immer dabei; sie kommen auch in die Devshell    |
+| `build.doChecks`     | Tests ausführen, Vorgabe `false`                                              |
+| `build.checkCommand` | Vorgabe `"just test"`                                                         |
+| `release`            | Pfade im Quellordner nach dem Build, siehe Releases                           |
+| `meta`               | wie bei nixpkgs; `mainProgram` muss eine ausführbare Datei aus `release` sein |
+
+Ins Paket kommen genau die Dateien aus `release`: ausführbare nach `bin/`,
+alles andere (auch Ordner, z.B. die Assets einer Webapp) nach
+`share/<packageName>/`.
 
 Ausgaben:
 
-- `packages.<system>.{default, <packageName>, project-release}`, mit `forge`
-  auch `project-forge`, und `extraPackages`
-- `overlays.default`, `nixosModules.default` (lib/service.nix und `module`, mit
-  dem Paket)
-- `checks.<system>`: `package`, `module`, `format` (nixfmt), `yaml` (yamllint,
+- `packages.<system>.{default, <packageName>…, dist, project-release}`, mit
+  `forge` auch `project-forge`, und `extraPackages`
+- `overlays.default` (alle Pakete), `nixosModules.default` (lib/service.nix und
+  `module`, mit dem Paket)
+- `checks.<system>`: `package` (`default`), `package-<packageName>` (die
+  übrigen), `dist`, `module`, `format` (nixfmt), `yaml` (yamllint,
   wenn es eine `.yamllint.yaml` gibt), `http3` (mit `smokeTest`), `release`
   (shellcheck), `forge` (shellcheck, mit `forge`), `extraChecks`
 - `devShells.<system>.ci`: git, just, jq, curl, nixfmt, yamllint, ohne weitere
   Inputs, für Workflows, die die Devshell nicht brauchen
   (`nix develop .#ci --command just ci`)
-- `lib.devShells`: die Devshell für `dev/flake.nix`, mit git, just, jq, nixfmt,
-  yamllint, `project-release`, den Hooks und mit `forge` gh bzw. tea und
-  `project-forge`
+- `devShells.<system>.default`: mit git, just, jq, nixfmt, yamllint,
+  `project-release`, den `build.tools` aller Pakete, den Hooks und mit `forge`
+  gh bzw. tea und `project-forge`
 - `formatter.<system>`
 
 ## Der Dienst `services.<name>`
@@ -79,6 +93,7 @@ Ausgaben:
   `/home`, keine Capabilities, fremde Prozesse unsichtbar, von `/var/lib` nur
   das eigene `StateDirectory`, höchstens die Hälfte des Speichers. Alles mit
   `mkDefault`, das Modul des Programms kann einzelnes lockern.
+- Daten in `/var/lib/<name>` (`StateDirectory`).
 - Mit `domain` liefert Caddy `caddyConfig` aus (Vorgabe: alles an den Socket).
   Caddy kommt in die Gruppe `<name>`, der Dienst startet vor Caddy. Ports öffnet
   das Modul keine.
@@ -106,10 +121,22 @@ project-release publish  dazu: liegt der Commit auf `branch`? Tag setzen und Rel
                          mit den Dateien aus dist/ (und SHA256SUMS) anlegen
 ```
 
+Welche Dateien ins Release kommen, steht in `release` der Pakete. Daraus baut
+`packages.<system>.dist` einen Ordner, den `just dist` nach `dist/` kopiert; als
+Check baut er schon im Pull Request. Vorne steht der `packageName`, die Datei
+nur, wenn sie anders heißt; ausführbare Dateien bekommen das System, Ordner
+werden zu `.tar.gz`, andere Dateien behalten ihre Endung:
+
+```
+zig-out/bin/beispiel   → beispiel-v1.0.0-x86_64-linux
+zig-out/bin/helfer     → beispiel-helfer-v1.0.0-x86_64-linux
+CHANGELOG.md           → beispiel-CHANGELOG-v1.0.0.md
+zig-out/webapp         → beispiel-webapp-v1.0.0.tar.gz
+```
+
 Auf GitHub wie auf Forgejo (Codeberg), erkannt an `GITHUB_SERVER_URL`. Der
 Workflow gibt das Token als `RELEASE_TOKEN` mit (`secrets.GITHUB_TOKEN`) und
-checkt mit `fetch-depth: 0` aus. Die Dateien in `dist/` heißen
-`<programm>-<tag>-<ziel>`. Ein erneuter Lauf lädt nur hoch, was fehlt.
+checkt mit `fetch-depth: 0` aus. Ein erneuter Lauf lädt nur hoch, was fehlt.
 
 ## Schutzregeln: `project-forge`
 
@@ -137,4 +164,4 @@ mit GitHub Pro.
 Die Devshell setzt `core.hooksPath` auf die Hooks aus `lib/hooks.nix`: kein
 Commit auf und kein Push nach `branch`, entwickelt wird auf `dev/…` und per Pull
 Request gemerget. Verbindlich sind die Schutzregeln der Forge, siehe
-`deploy/release.md` der Programme.
+`project-forge`.

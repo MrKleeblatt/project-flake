@@ -6,9 +6,10 @@
 #   die Gruppe `<name>`, um den Socket zu benutzen. Ports öffnet das Modul keine, das ist Sache des
 #   Servers.
 # - Secrets nennt das Programm in `secrets` (Dateiname → wofür), der Server legt sie in `secretsDir`.
+# - Daten in /var/lib/<name> (`StateDirectory`).
 #
-# Was das Programm darüber hinaus braucht (Argumente, StateDirectory, weitere Dienste), setzt sein
-# eigenes Modul, siehe `module` in mkApp.
+# Was das Programm darüber hinaus braucht (Argumente, weitere Dienste), setzt sein eigenes Modul,
+# siehe `module` in mkApp.
 { name, title }:
 {
   config,
@@ -156,6 +157,8 @@ in
           Restart = "on-failure";
           RuntimeDirectory = name;
           RuntimeDirectoryMode = "0750";
+          # /var/lib/<name>, das Programm erfährt den Pfad über sein Modul (`args`)
+          StateDirectory = mkDefault name;
           # Socket für die Gruppe les- und schreibbar
           UMask = mkDefault "0007";
         }

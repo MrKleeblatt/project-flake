@@ -1,4 +1,4 @@
-# die Werkzeuge kommen aus der Devshell in dev/flake.nix (`nix develop ./dev` oder direnv)
+# die Werkzeuge kommen aus der Devshell (`nix develop` oder direnv)
 
 # einzige Stelle der Versionsnummer, die Tags heißen v<version>
 version := `sed -n 's/^[[:space:]]*\.version = "\(.*\)",/\1/p' build.zig.zon`
@@ -6,6 +6,16 @@ version := `sed -n 's/^[[:space:]]*\.version = "\(.*\)",/\1/p' build.zig.zon`
 [private]
 default:
     @just --list
+
+# bauen (auch `nix build`, siehe `build.command` in packages.nix)
+[group("Entwicklung")]
+build:
+    zig build -Doptimize=ReleaseSafe
+
+# Tests (auch `nix build`, siehe `build.checkCommand` in packages.nix)
+[group("Entwicklung")]
+test:
+    zig build test
 
 # vorher `tea login add --url https://codeberg.org --token …` bzw. `gh auth login`
 # Schutzregel für master auf der Forge (`forge` in flake.nix) anlegen oder aktualisieren
@@ -23,15 +33,16 @@ forge-show:
 ci:
     nix flake check -L
 
-# die Release-Dateien in dist/ (<programm>-<tag>-<ziel>)
+# die Release-Dateien in dist/ (<paket>[-<datei>]-<tag>[-<ziel>]), welche es sind, steht in
+# packages.nix (`release`)
 [group("CI/CD")]
-dist tag=("v" + version):
+dist:
     #!/usr/bin/env bash
     set -euo pipefail
-    out=$(nix build --no-link --print-out-paths .#default)
+    out=$(nix build --no-link --print-out-paths .#dist)
     mkdir -p dist
     find dist -mindepth 1 -delete
-    install -m755 "$out/bin/beispiel" "dist/beispiel-{{ tag }}-x86_64-linux"
+    cp "$out"/* dist/
 
 # ist die Version höher als der letzte Tag? (Workflows „Prüfen und bauen“ und „Release“)
 [group("CI/CD")]

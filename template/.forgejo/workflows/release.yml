@@ -21,4 +21,4 @@ jobs:
           fetch-depth: 0
       - env:
           RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: nix develop ./dev --command just release
+        run: nix develop --command just release
