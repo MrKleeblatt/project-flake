@@ -121,7 +121,7 @@ let
           runHook postInstall
         '';
         # für lib/dist.nix
-        passthru = {
+        passthru = b.extra.passthru or { } // {
           inherit (p) packageName;
           inherit target;
           release = bases;
@@ -129,7 +129,7 @@ let
         };
         meta = p.meta or { };
       }
-      // b.extra or { }
+      // builtins.removeAttrs (b.extra or { }) [ "passthru" ]
     );
 
   buildAll =
