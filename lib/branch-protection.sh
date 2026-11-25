@@ -1,6 +1,6 @@
 # Schutzregeln der Forge für Programme nach dem Muster von project-flake, mit gh (GitHub) bzw.
 # tea (Forgejo, Codeberg) und gum für die Abfragen. Das Repo ergibt sich aus dem Remote origin.
-# Aufgerufen über das justfile (`just forge-login`, `just branch-protect`, `just branch-protection`).
+# Aufgerufen über das justfile (`just forge-login`, `just branch-protect`, `just protection-info`).
 #
 #   branch-protection login
 #       geführt bei der Forge anmelden, wenn noch nicht geschehen; das Token speichert gh bzw. tea
