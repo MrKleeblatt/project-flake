@@ -22,15 +22,15 @@ test:
 forge-login:
     nix run .#branch-protection -- login
 
-# Schutzregel für master auf der Forge anlegen oder aktualisieren, meldet vorher an; wer allein
-# arbeitet, kann den eigenen Pull Request nicht freigeben und nimmt `just branch-protect 0`
+# wer allein arbeitet, kann den eigenen Pull Request nicht freigeben: `just branch-protect 0`
+# Schutzregel für master auf der Forge anlegen oder aktualisieren, meldet vorher an
 [group("Forge")]
 branch-protect approvals="1":
     nix run .#branch-protection -- protect --approvals {{ approvals }}
 
 # die Schutzregeln des Repos
 [group("Forge")]
-branch-protection:
+protection-info:
     nix run .#branch-protection -- show
 
 # Pull Requests (Workflow „Prüfen und bauen“): Build mit Tests, NixOS-Modul, HTTP/3, Formatierung, YAML

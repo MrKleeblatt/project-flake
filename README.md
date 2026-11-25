@@ -177,7 +177,7 @@ just branch-protect [<n>]
     kein Force-Push, nicht löschbar, <n> Freigaben (Vorgabe 1, veraltete
     verfallen), der Check muss grün und der Branch aktuell sein; meldet vorher
     an, zeigt die Regel und fragt nach
-just branch-protection
+just protection-info
     die Schutzregeln des Repos
 ```
 
